@@ -1,0 +1,9 @@
+src/
+sf2/
+/autobuild.ps1
+/toneJsTypeScript.txt
+/test.js
+/build.js
+/out.wav
+# final output will be /build
+/dist

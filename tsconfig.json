@@ -1,0 +1,12 @@
+{
+    "include": ["src"],
+    "compilerOptions": {
+        "allowJs": true,
+        "rootDir": "./src",
+        "outDir": "./dist",
+        "module": "nodenext",
+        "target": "es2024",
+        "moduleResolution": "nodenext",
+        "esModuleInterop": true
+    }
+}
