@@ -145,4 +145,5 @@ sf2/
 /autobuild.ps1
 /toneJsTypeScript.txt
 /test.js
+/package-lock.json
 /out.wav
