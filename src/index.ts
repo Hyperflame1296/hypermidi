@@ -33,6 +33,7 @@ let tags = {
 }
 class Renderer {
     sampleEvents: SampleEvent[] = []
+    controlChangeEvents: ControlChangeSampleEvent[] = []
     events = []
     samples: SampleObject[] = []
     sampleRate: number = 48000
@@ -53,6 +54,7 @@ class Renderer {
     constructor(threadCount: number = 8, options: RendererOptions = {}) {
         this.threadCount = threadCount
         this.options.sampleRate = options.sampleRate ?? 48000
+        this.options.enableCC = options.enableCC ?? true
         this.options.logging = {
             info: options.logging?.info ?? false,
             warn: options.logging?.warn ?? true,
@@ -179,6 +181,8 @@ class Renderer {
         let l = 0
         let t = 0
         let noteMap: Map<string, [number, number][]> = new Map()
+        let holdPedalNotes: Set<[number, number]>[] = Array(16).fill(false).map(() => new Set())
+        let holdPedal: boolean[] = Array(16).fill(false)
         for (let e of combinedEvents) {
             let d = e.t - l
             t += d * secondsPerTick
@@ -202,20 +206,45 @@ class Renderer {
                             })
                         }
                     } else { // note on
-                        noteMap.get(key).push([
-                            t,
-                            e.d
-                        ])
+                        if (holdPedal[e.c])
+                            holdPedalNotes[e.c].add([
+                                t,
+                                e.d
+                            ])
+                        else 
+                            noteMap.get(key).push([
+                                t,
+                                e.d
+                            ])
                     }
                     break
                 case 0x0b: // cc
-                    this.events.push({
-                        k: 'cc',
-                        t,
-                        n: e.d[0], // cc number
-                        v: e.d[1] / 127, // cc value,
-                        c: e.c // channel
-                    })
+                    if (e.d[0] === 0x40) { // hold pedal
+                        if (e.d[1] >= 64) { // on
+                            holdPedal[e.c] = true
+                        } else { // off
+                            holdPedal[e.c] = false
+                            for (let n of holdPedalNotes[e.c]) {
+                                this.events.push({ 
+                                    k: 'note',
+                                    n: n[1][0], // MIDI note number
+                                    v: n[1][1] / 127, // velocity
+                                    t: n[0], // note on time
+                                    c: e.c, // channel
+                                    d: t - n[0] // note duration
+                                })
+                            }
+                            holdPedalNotes[e.c].clear()
+                        }
+                    } else {
+                        this.events.push({
+                            k: 'cc',
+                            t,
+                            n: e.d[0], // cc number
+                            v: e.d[1] / 127, // cc value,
+                            c: e.c // channel
+                        })
+                    }
                     break
                 case 0x0e: // pitch bend
                     this.events.push({
@@ -265,7 +294,7 @@ class Renderer {
                         ...e,
                         id: id++
                     }
-                    this.sampleEvents.push(ccSampleEvent)
+                    this.controlChangeEvents.push(ccSampleEvent)
                     break
                 case 'pitch':
                     var pbSampleEvent: PitchBendSampleEvent = {
@@ -276,6 +305,7 @@ class Renderer {
                     break
             }
         }
+        this.controlChangeEvents = this.controlChangeEvents.sort((a, b) => a.t - b.t)
         if (this.options.logging?.info) console.log(tags.info + 'Rendering...')
         let chunkSize = Math.ceil(this.sampleEvents.length / this.threadCount)
         let promises: Promise<void>[] = []
@@ -299,6 +329,8 @@ class Renderer {
                         release: s.release,
                         attenuation: s.attenuation
                     })),
+                    cc: this.controlChangeEvents,
+                    opts: this.options,
                     id: i,
                     sab
                 } 
@@ -320,16 +352,6 @@ class Renderer {
                 worker.once('error', (err) => {
                     rej(err)
                 })
-                /*
-                worker.once('exit', (code) => {
-                    if (code !== 0) {
-                        rej(new Error(`Worker exited with code ${code}`))
-                    } else {
-                        // If a worker might exit after message, resolving above is fine.
-                        // If it exits without message, resolve to avoid hanging:
-                        if ((worker as any).active) res()
-                    }
-                })*/
             })
             promises.push(p)
             this.threads[i] = worker
