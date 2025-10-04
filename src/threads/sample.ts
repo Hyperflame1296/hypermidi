@@ -43,11 +43,6 @@ let chorusBufferR = new Float32Array(workerData.sampleRate * 0.05);
 let chorusIndex = 0;
 let chorusPhase = 0;
 
-// Parameters
-let chorusRate = 0.8;     // Hz (LFO rate)
-let chorusDepth = 0.006;  // seconds (3ms)
-let chorusMix = 0.5;     // wet/dry mix
-
 function getCCValue(list, t) {
     let lo = 0, hi = list.length - 1, lastVal = undefined;
     while (lo <= hi) {
@@ -103,7 +98,7 @@ for (let i = 0; i < workerData.data.length; i++) {
 
                 // code written by ChatGPT
                 {
-                    if (cc.chorus[sampleEvent.c] <= 0) { // little integration by me to ignore chorus when its value is 0
+                    if (cc.chorus[sampleEvent.c] <= 0 || !workerData.opts?.chorus?.enabled) { // little integration by me to ignore chorus when its value is 0
                         channelData[0][index] = o0 + y0;
                         channelData[1][index] = o1 + y1;
                     } else {
@@ -116,8 +111,8 @@ for (let i = 0; i < workerData.data.length; i++) {
                         let lfoR = Math.sin((chorusPhase + 0.25) * 2 * Math.PI); // 90° offset for right channel
 
                         // Calculate modulated delay offsets per channel
-                        let delaySamplesL = (chorusDepth + lfoL * chorusDepth) * workerData.sampleRate;
-                        let delaySamplesR = (chorusDepth + lfoR * chorusDepth) * workerData.sampleRate;
+                        let delaySamplesL = (workerData.opts?.chorus?.depth ?? 0.006 + lfoL * (workerData.opts?.chorus?.depth ?? 0.006)) * workerData.sampleRate;
+                        let delaySamplesR = (workerData.opts?.chorus?.depth ?? 0.006 + lfoR * (workerData.opts?.chorus?.depth ?? 0.006)) * workerData.sampleRate;
 
                         // === LEFT ===
                         let readIndexL = (chorusIndex - delaySamplesL + chorusBufferL.length) % chorusBufferL.length;
@@ -134,12 +129,12 @@ for (let i = 0; i < workerData.data.length; i++) {
                         let delayedR = lerp(chorusBufferR[i0R], chorusBufferR[i1R], fracR);
 
                         // Mix wet/dry (scaled by CC)
-                        let mix = chorusMix * cc.chorus[sampleEvent.c];
+                        let mix = (workerData.opts?.chorus?.mix ?? 0.5) * cc.chorus[sampleEvent.c];
                         let wet0 = y0 * (1 - mix) + delayedL * mix;
                         let wet1 = y1 * (1 - mix) + delayedR * mix;
 
                         // Advance chorus state
-                        chorusPhase += chorusRate / workerData.sampleRate;
+                        chorusPhase += (workerData.opts?.chorus?.rate ?? 0.8) / workerData.sampleRate;
                         if (chorusPhase >= 1) chorusPhase -= 1;
                         chorusIndex = (chorusIndex + 1) % chorusBufferL.length;
 
