@@ -56,6 +56,7 @@ class Renderer {
         this.options.sampleRate = options.sampleRate ?? 48000
         this.options.enableCC = options.enableCC ?? true
         this.options.chorus = {
+            enabled: options.chorus?.enabled ?? true,
             rate: options.chorus?.rate ?? 0.8,
             depth: options.chorus?.depth ?? 0.006,
             mix: options.chorus?.mix ?? 0.5

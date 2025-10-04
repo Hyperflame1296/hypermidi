@@ -21,12 +21,14 @@ let channelData = [
 ]
 var cc = {
     modulation: {},
+    pan: {},
     volume: {},
     expression: {},
     chorus: {},
 }
 let ccMap = {
     0x01: Array.from({ length: 16 }, () => []), // modulation
+    0x0a: Array.from({ length: 16 }, () => []), // pan
     0x07: Array.from({ length: 16 }, () => []), // volume
     0x0b: Array.from({ length: 16 }, () => []),  // expression
     0x5d: Array.from({ length: 16 }, () => []),  // chorus
@@ -90,11 +92,12 @@ for (let i = 0; i < workerData.data.length; i++) {
                     cc.volume[c]     = getCCValue(ccMap[0x07][c], t) ?? 0.787;
                     cc.expression[c] = getCCValue(ccMap[0x0b][c], t) ?? 1.0;
                     cc.chorus[c]     = getCCValue(ccMap[0x5d][c], t) ?? 0.0;
+                    cc.pan[c]        = getCCValue(ccMap[0x0a][c], t) ?? 0.5;
                 }
                 let m = cc.modulation[sampleEvent.c]
                 let v = cc.volume[sampleEvent.c] * cc.expression[sampleEvent.c]
-                let y0 = pcm[0][k] * sample.attenuation * (sample.velocity ?? sampleEvent.v) ** ramp * r ** ramp * a ** ramp * v,
-                    y1 = pcm[1][k] * sample.attenuation * (sample.velocity ?? sampleEvent.v) ** ramp * r ** ramp * a ** ramp * v
+                let y0 = pcm[0][k] * sample.attenuation * (sample.velocity ?? sampleEvent.v) ** ramp * r ** ramp * a ** ramp * v * (1 - cc.pan[sampleEvent.c]),
+                    y1 = pcm[1][k] * sample.attenuation * (sample.velocity ?? sampleEvent.v) ** ramp * r ** ramp * a ** ramp * v * (cc.pan[sampleEvent.c] - 0)
 
                 // code written by ChatGPT
                 {
