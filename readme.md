@@ -2,7 +2,7 @@
 a MIDI renderer.
 
 # Usage
-To use this package, you first need a soundfont (`.sf2` file), and a MIDI file (`.mid`).
+To use this package, you first need a soundfont (`.sf2` file), and a MIDI file (`.mid`).  
 Below is an example of how to use the `Renderer`:
 ```js
 import { Renderer } from 'hypermidi'
