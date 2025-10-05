@@ -28,14 +28,31 @@ let channelData = await renderer.render('path/to/midi/file.mid') // render a MID
 // channelData is an array of two Float32Arrays (left and right) at the specified sample rate
 // You can then encode it to WAV using wav-encoder or any other library
 ```
-You can also make your own event list and render it:
+You can also make your own event list and render it.
+Below is an example of rendering a strummed C major chord:
 ```js
 let notes = [
     {
         type: 'note',
-        note: 60,
+        note: 60, // C
         velocity: 1,
-        time: 0,
+        time: 0.0,
+        duration: 1,
+        channel: 0
+    },
+    {
+        type: 'note',
+        note: 64, // E
+        velocity: 1,
+        time: 0.25,
+        duration: 1,
+        channel: 0
+    },
+    {
+        type: 'note',
+        note: 67, // G
+        velocity: 1,
+        time: 0.5,
         duration: 1,
         channel: 0
     }

@@ -320,7 +320,12 @@ class Renderer {
                         c: e.channel ?? 0,
                     })
                 case 'pitch':
-                    break
+                    return ({
+                        k: e.type,
+                        t: e.time,
+                        v: (e.value ?? 1.0), // cc value
+                        c: e.channel ?? 0,
+                    })
                 default:
                     throw new Error(`Invalid event type: ${e.type}`)
             }
