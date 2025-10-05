@@ -40,5 +40,6 @@ let notes = [
         channel: 0
     }
 ]
+renderer.loadSoundfont('path/to/soundfont.sf2')
 let channelData = await renderer.renderNotes(notes)
 ```
