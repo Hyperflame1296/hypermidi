@@ -326,13 +326,13 @@ class Renderer {
         this.events = this.events.sort((a, b) => a.t - b.t)
         if (this.options.logging?.info) console.log(tags.info + 'Creating empty audio channel...')
         let length = this.events.findLast(v => !!v).t + (this.events.findLast(v => !!v).d ?? 0) + 1
-        let sab = [
+        let arrayBuffer = [
             new SharedArrayBuffer(Float32Array.BYTES_PER_ELEMENT * Math.floor(this.options.sampleRate * length)),
             new SharedArrayBuffer(Float32Array.BYTES_PER_ELEMENT * Math.floor(this.options.sampleRate * length))
         ]
         let channelData = [
-            new Float32Array(sab[0]), 
-            new Float32Array(sab[1])
+            new Float32Array(arrayBuffer[0]), 
+            new Float32Array(arrayBuffer[1])
         ]
         if (this.options.logging?.info) console.log(tags.info + 'Adding events...')
         let id = 0
@@ -388,7 +388,7 @@ class Renderer {
                     cc: this.controlChangeEvents,
                     opts: this.options,
                     id: i,
-                    sab
+                    arrayBuffer
                 } 
             })
             let p = new Promise<void>((res, rej) => {

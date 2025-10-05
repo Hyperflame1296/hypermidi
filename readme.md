@@ -1,5 +1,5 @@
 # hypermidi
-a MIDI renderer.
+a MIDI renderer, for fun ig
 
 # Usage
 To use this package, you first need a soundfont (`.sf2` file), and a MIDI file (`.mid`).  
