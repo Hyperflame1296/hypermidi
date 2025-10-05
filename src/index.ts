@@ -367,9 +367,9 @@ class Renderer {
         let promises: Promise<void>[] = []
         for (let i = 0; i < this.threadCount; i++) {
             let start = i * chunkSize
-            let end = i * chunkSize + chunkSize
+            let end = Math.min(i * chunkSize + chunkSize, this.sampleEvents.length)
             let events = this.sampleEvents.slice(start, end)
-            if (start >= end || events.length === 0) {
+            if (events.length <= 0) {
                 promises.push(Promise.resolve())
                 continue
             }
@@ -395,7 +395,7 @@ class Renderer {
                 (worker as any).active = true
                 worker.once('message', (msg) => {
                     if (msg.error) {
-                        if (this.options.logging?.error) console.error(tags.error + `Worker ${msg.id} crashed: ${msg.error}`);
+                        if (this.options.logging?.error) console.error(tags.error + `Thread ${msg.id + 1} has encountered an error: ${msg.error}`);
                         rej(new Error(msg.error));
                         return;
                     }
@@ -411,7 +411,7 @@ class Renderer {
             })
             promises.push(p)
             this.threads[i] = worker
-            if (this.options.logging?.info) console.log(tags.info + `Started worker ${i} for events ${start} to ${end}!`);
+            if (this.options.logging?.info) console.log(tags.info + `Initialized thread ${i + 1} for events ${start.toLocaleString()} to ${end.toLocaleString()}!`);
         }
         
         this.sampleEvents = []

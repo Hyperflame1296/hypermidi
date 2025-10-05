@@ -18,7 +18,7 @@ let renderer = new Renderer({ // all options are optional
         mix: 0.5
     },
     logging: {
-        info: true,
+        info: false,
         warn: true,
         error: true
     }
