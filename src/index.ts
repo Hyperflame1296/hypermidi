@@ -202,6 +202,7 @@ class Renderer {
                     let n = noteMap.get(key).pop()
                     if (n) {
                         this.events.push({ 
+                            s: 1,
                             k: 'note',
                             n: n[1][0], // MIDI note number
                             v: n[1][1] / 127, // velocity
@@ -219,6 +220,7 @@ class Renderer {
                         let n = noteMap.get(key).pop()
                         if (n) {
                             this.events.push({ 
+                                s: 1,
                                 k: 'note',
                                 n: n[1][0], // MIDI note number
                                 v: n[1][1] / 127, // velocity
@@ -248,6 +250,7 @@ class Renderer {
                             holdPedal[e.c] = false
                             for (let n of holdPedalNotes[e.c]) {
                                 this.events.push({ 
+                                    s: 1,
                                     k: 'note',
                                     n: n[1][0], // MIDI note number
                                     v: n[1][1] / 127, // velocity
@@ -260,6 +263,7 @@ class Renderer {
                         }
                     } else {
                         this.events.push({
+                            s: 1,
                             k: 'cc',
                             t,
                             n: e.d[0], // cc number
@@ -270,6 +274,7 @@ class Renderer {
                     break
                 case 0x0e: // pitch bend
                     this.events.push({
+                        s: 1,
                         k: 'pitch',
                         t,
                         v: ((e.d[1] << 7) | e.d[0]) - 8192, // pitch bend amount
@@ -287,6 +292,35 @@ class Renderer {
             }
         }
         combinedEvents = []
+        return await this.renderNotes(this.events, start)
+    }
+    async renderNotes(events = [], start=performance.now()) {
+        this.events = events.map(e => {
+            if (e.s == 1) return e
+            switch (e.type) {
+                case 'note':
+                    return ({
+                        k: e.type,
+                        n: e.note, // MIDI note number
+                        v: (e.velocity ?? 1.0), // velocity
+                        t: e.time, // note on time
+                        c: e.channel ?? 0,
+                        d: e.duration // note duration
+                    })
+                case 'cc':
+                    return ({
+                        k: e.type,
+                        t: e.time,
+                        n: e.cc, // cc number
+                        v: (e.value ?? 1.0), // cc value
+                        c: e.channel ?? 0,
+                    })
+                case 'pitch':
+                    break
+                default:
+                    throw new Error(`Invalid event type: ${e.type}`)
+            }
+        })
         if (this.events.length === 0) throw new Error('There are no note events in this MIDI!');
         if (this.options.logging?.info) console.log(tags.info + 'Sorting events...')
         this.events = this.events.sort((a, b) => a.t - b.t)

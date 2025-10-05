@@ -1,12 +1,10 @@
 # hypermidi
 a MIDI renderer.
 
-# Usage
+# Usage'
+To use this package, you first need a soundfont (`.sf2` file), and a MIDI file (`.mid`).
 ```js
-import WavEncoder from 'wav-encoder'
 import { Renderer } from 'hypermidi'
-import fs from 'node:fs'
-console.clear()
 let renderer = new Renderer({ // all options are optional
     threadCount: 8,
     sampleRate: 48000,
@@ -26,14 +24,20 @@ let renderer = new Renderer({ // all options are optional
 })
 renderer.loadSoundfont('path/to/soundfont.sf2') // load a soundfont
 let channelData = await renderer.render('path/to/midi/file.mid') // render a MIDI file
-// channelData is two Float32Arrays (left and right) at the specified sample rate
+// channelData is an array of two Float32Arrays (left and right) at the specified sample rate
 // You can then encode it to WAV using wav-encoder or any other library
-let audioData = {
-    sampleRate: renderer.sampleRate,
-    channelData,
-}
-let buffer = WavEncoder.encode.sync(audioData, {
-    float: true
-})
-fs.writeFileSync('out.wav', Buffer.from(buffer));
+```
+You can also make your own event list and render it.
+```js
+let notes = [
+    {
+        type: 'note',
+        note: 60,
+        velocity: 1,
+        time: 0,
+        duration: 1,
+        channel: 0
+    }
+]
+let channelData = await renderer.renderNotes(notes)
 ```
