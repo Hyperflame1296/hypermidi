@@ -15,8 +15,13 @@ interface RendererOptions {
      */
     enableCC?: boolean
     /**
+     * Enable pitch bend processing.
+     * Default is `true`.
+     */
+    enablePitchBend?: boolean
+    /**
      * The size of audio buffers used during rendering, in samples.  
-     * Larger buffer sizes may improve performance but decrease accuracy.  
+     * Larger buffer sizes may improve performance but may decrease accuracy.  
      * Default is `512`.
      */
     audioBufferSize?: number

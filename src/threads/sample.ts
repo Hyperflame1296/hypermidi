@@ -85,11 +85,18 @@ for (let i = 0; i < workerData.data.length; i++) {
                 if (workerData.opts?.enableCC) {
                     let t = (start + j) / workerData.sampleRate
                     let c = sampleEvent.c
-                    cc.modulation[c] = getCCValue(ccMap[0x01][c], t) ?? 0.0;
-                    cc.volume[c]     = getCCValue(ccMap[0x07][c], t) ?? 0.787;
-                    cc.expression[c] = getCCValue(ccMap[0x0b][c], t) ?? 1.0;
-                    cc.chorus[c]     = getCCValue(ccMap[0x5d][c], t) ?? 0.0;
-                    cc.pan[c]        = getCCValue(ccMap[0x0a][c], t) ?? 0.5;
+                    cc.modulation[c] = getCCValue(ccMap[0x01][c], t) ?? 0.0
+                    cc.volume[c]     = getCCValue(ccMap[0x07][c], t) ?? 0.787
+                    cc.expression[c] = getCCValue(ccMap[0x0b][c], t) ?? 1.0
+                    cc.chorus[c]     = getCCValue(ccMap[0x5d][c], t) ?? 0.0
+                    cc.pan[c]        = getCCValue(ccMap[0x0a][c], t) ?? 0.5
+                } else {
+                    let c = sampleEvent.c
+                    cc.modulation[c] = 0.0
+                    cc.volume[c]     = 0.787
+                    cc.expression[c] = 1.0
+                    cc.chorus[c]     = 0.0
+                    cc.pan[c]        = 0.5
                 }
                 for (let k = 0; k < data[0].length; k++) {
                     let index = start + j + k

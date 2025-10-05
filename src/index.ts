@@ -198,6 +198,7 @@ class Renderer {
                 //j % 2000 === 0 ? console.log(`Track ${color.greenBright(i)} - [${color.blueBright(j.toLocaleString())} / ${color.blueBright(t.event.length.toLocaleString())}] events combined - Memory used: ${this.#formatSize(process.memoryUsage().heapTotal)}`) : void 0
             }
         }
+        midi = undefined
         combinedEvents = combinedEvents.sort((a, b) => a.t - b.t)
         if (this.options.logging?.info) console.log(tags.info + 'Mapping events...')
         let l = 0
@@ -276,7 +277,7 @@ class Renderer {
                             }
                             holdPedalNotes[e.c].clear()
                         }
-                    } else {
+                    } else if (this.options.enableCC) {
                         this.events.push({
                             s: 1,
                             k: 'cc',
@@ -288,6 +289,7 @@ class Renderer {
                     }
                     break
                 case 0x0e: // pitch bend
+                    if (!this.options.enablePitchBend) break
                     this.events.push({
                         s: 1,
                         k: 'pitch',
@@ -328,6 +330,7 @@ class Renderer {
                         d: e.duration // note duration
                     })
                 case 'cc':
+                    if (!this.options.enableCC) return
                     return ({
                         k: e.type,
                         t: e.time,
@@ -336,6 +339,7 @@ class Renderer {
                         c: e.channel ?? 0,
                     })
                 case 'pitch':
+                    if (!this.options.enablePitchBend) return
                     return ({
                         k: e.type,
                         t: e.time,
@@ -371,6 +375,7 @@ class Renderer {
                     this.sampleEvents.push(noteSampleEvent)
                     break
                 case 'cc':
+                    if (!this.options.enableCC) break
                     var ccSampleEvent: ControlChangeSampleEvent = {
                         ...e,
                         id: id++
@@ -378,6 +383,7 @@ class Renderer {
                     this.controlChangeEvents.push(ccSampleEvent)
                     break
                 case 'pitch':
+                    if (!this.options.enablePitchBend) break
                     var pbSampleEvent: PitchBendSampleEvent = {
                         ...e,
                         id: id++

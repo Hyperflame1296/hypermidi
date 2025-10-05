@@ -10,6 +10,7 @@ let renderer = new Renderer({ // all options are optional
     threadCount: 8,
     sampleRate: 48000,
     enableCC: true,
+    enablePitchBend: true,
     audioBufferSize: 512,
     chorus: {
         enabled: true,
