@@ -7,9 +7,11 @@ import WavEncoder from 'wav-encoder'
 import { Renderer } from 'hypermidi'
 import fs from 'node:fs'
 console.clear()
-let renderer = new Renderer(8, { // 8 = number of threads, all options are optional
+let renderer = new Renderer({ // all options are optional
+    threadCount: 8,
     sampleRate: 48000,
     enableCC: true,
+    audioBufferSize: 512,
     chorus: {
         enabled: true,
         rate: 0.8,

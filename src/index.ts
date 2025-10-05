@@ -51,8 +51,8 @@ class Renderer {
     threadCount: number = 8
     threads: Worker[] = []
     options: RendererOptions = {}
-    constructor(threadCount: number = 8, options: RendererOptions = {}) {
-        this.threadCount = threadCount
+    constructor(options: RendererOptions = {}) {
+        this.threadCount = options.threadCount ?? 8
         this.options.sampleRate = options.sampleRate ?? 48000
         this.options.enableCC = options.enableCC ?? true
         this.options.audioBufferSize = options.audioBufferSize ?? 512
