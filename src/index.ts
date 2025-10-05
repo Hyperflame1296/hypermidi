@@ -35,6 +35,9 @@ let tags = {
     warn:  `[${color.greenBright('HyperMIDI')}] - [${color.yellowBright('WARNING')}] - `,
     error: `[${color.greenBright('HyperMIDI')}] - [${color.redBright('ERROR')}] - `
 }
+/**
+ * An audio renderer.
+ */
 class Renderer {
     sampleEvents: SampleEvent[] = []
     controlChangeEvents: ControlChangeSampleEvent[] = []
@@ -109,7 +112,7 @@ class Renderer {
             attenuation: toLinear(iz.generators[48]?.value ?? 0)
         }
     }
-    #transpose(data: Float32Array, root: number, note: number) {
+    #transpose(data: Float32Array, root: number, note: number): Float32Array {
         let diff = note - root;
         let ratio = 2 ** (diff / 12);
         let len = Math.floor(data.length / ratio);
@@ -122,7 +125,7 @@ class Renderer {
         }
         return out
     }
-    #resample(data: Float32Array, orate: number, rate: number) {
+    #resample(data: Float32Array, orate: number, rate: number): Float32Array {
         let mul = rate / orate
         let len = Math.floor(data.length * mul)
         let out = new Float32Array(len)
@@ -135,7 +138,11 @@ class Renderer {
         }
         return out
     }
-    loadSoundfont(path:string) {
+    /**
+     * Load a SoundFont file.
+     * @param path Path to a `.sf2` file.
+     */
+    loadSoundfont(path: string): void {
         let start = performance.now()
         if (this.options.logging?.info) console.log(tags.info + 'Loading soundfont...')
         this.soundfont = new sf2.SoundFont2(fs.readFileSync(path))
@@ -144,7 +151,11 @@ class Renderer {
         let end = performance.now()
         if (this.options.logging?.info) console.log(tags.info + `${color.greenBright('Finished loading soundfont!')} ${'(' + color.white(((end - start) / 1000).toFixed(1)) + 's)'}`)
     }
-    async render(path: string) {
+    /**
+     * Render a MIDI file to an audio buffer.
+     * @param path Path to a `.mid` or `.midi` file.
+     */
+    async render(path: string): Promise<[Float32Array<SharedArrayBuffer>, Float32Array<SharedArrayBuffer>]> {
         let start = performance.now()
         if (this.options.logging?.info) console.log(tags.info + 'Loading MIDI...')
         let data = fs.readFileSync(path)
@@ -298,7 +309,12 @@ class Renderer {
         combinedEvents = []
         return await this.renderNotes(this.events, start)
     }
-    async renderNotes(events = [], start=performance.now()) {
+    /**
+     * Render a group of notes.
+     * @param events Array of note events.
+     * @param start The time at which rendering started. Mostly used internally.
+     */
+    async renderNotes(events: any[] = [], start: number = performance.now()): Promise<[Float32Array<SharedArrayBuffer>, Float32Array<SharedArrayBuffer>]> {
         this.events = events.map(e => {
             if (e.s == 1) return e
             switch (e.type) {
@@ -335,11 +351,11 @@ class Renderer {
         this.events = this.events.sort((a, b) => a.t - b.t)
         if (this.options.logging?.info) console.log(tags.info + 'Creating empty audio channel...')
         let length = this.events.findLast(v => !!v).t + (this.events.findLast(v => !!v).d ?? 0) + 1
-        let arrayBuffer = [
+        let arrayBuffer: [SharedArrayBuffer, SharedArrayBuffer] = [
             new SharedArrayBuffer(Float32Array.BYTES_PER_ELEMENT * Math.floor(this.options.sampleRate * length)),
             new SharedArrayBuffer(Float32Array.BYTES_PER_ELEMENT * Math.floor(this.options.sampleRate * length))
         ]
-        let channelData = [
+        let channelData: [Float32Array<SharedArrayBuffer>, Float32Array<SharedArrayBuffer>] = [
             new Float32Array(arrayBuffer[0]), 
             new Float32Array(arrayBuffer[1])
         ]
@@ -376,7 +392,7 @@ class Renderer {
         let promises: Promise<void>[] = []
         for (let i = 0; i < this.threadCount; i++) {
             let start = i * chunkSize
-            let end = Math.min(i * chunkSize + chunkSize, this.sampleEvents.length - 1)
+            let end = Math.min(i * chunkSize + chunkSize, this.sampleEvents.length)
             let events = this.sampleEvents.slice(start, end)
             if (events.length <= 0) {
                 promises.push(Promise.resolve())

@@ -1,18 +1,69 @@
 interface RendererOptions {
-    sampleRate?: number; // in Hz, default 48000
-    enableCC?: boolean; // enable control change (CC) processing, default true
-    audioBufferSize?: number; // in samples, default 512
-    threadCount?: number; // number of worker threads to use, default 8
+    /**
+     * The number of threads to use for rendering.
+     * Default is `8`.
+     */
+    threadCount?: number
+    /**
+     * The audio sample rate in Hz.  
+     * Default is `48000`.
+     */
+    sampleRate?: number
+    /**
+     * Enable control change (CC) processing.  
+     * Default is `true`.
+     */
+    enableCC?: boolean
+    /**
+     * The size of audio buffers used during rendering, in samples.  
+     * Larger buffer sizes may improve performance but decrease accuracy.  
+     * Default is `512`.
+     */
+    audioBufferSize?: number
+    /**
+     * Chorus effect settings.
+     */
     chorus?: {
-        enabled: boolean; // enable chorus effect, default true
-        rate: number;  // in Hz, default 0.8
-        depth: number; // in seconds, default 0.006 (6ms)
-        mix: number;   // wet/dry mix, 0.0 to 1.0, default 0.5
+        /**
+         * Enable chorus effect.
+         * Default is `true`.
+         */
+        enabled?: boolean 
+        /**
+         * Chorus rate in Hz.
+         * Default is `0.8`.
+         */
+        rate?: number
+        /**
+         * Chorus depth in seconds.
+         * Default is `0.006` (6ms).
+         */
+        depth?: number
+        /**
+         * Chorus wet/dry mix, from `0.0` (dry only) to `1.0` (wet only).
+         * Default is `0.5`.
+         */
+        mix?: number
     }
+    /**
+     * Logging options.
+     */
     logging?: {
-        info: boolean; // log general info, default false
-        warn: boolean; // log warnings, default true
-        error: boolean; // log errors, default true
+        /**
+         * Log general info messages.
+         * Default is `false`.
+         */
+        info?: boolean
+        /**
+         * Log warning messages.
+         * Default is `true`.
+         */
+        warn?: boolean
+        /**
+         * Log error messages.
+         * Default is `true`.
+         */
+        error?: boolean
     }
 }
 export { 
