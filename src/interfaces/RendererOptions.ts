@@ -1,6 +1,7 @@
 interface RendererOptions {
     sampleRate?: number; // in Hz, default 48000
     enableCC?: boolean; // enable control change (CC) processing, default true
+    audioBufferSize?: number; // in samples, default 512
     chorus?: {
         enabled: boolean; // enable chorus effect, default true
         rate: number;  // in Hz, default 0.8

@@ -55,6 +55,7 @@ class Renderer {
         this.threadCount = threadCount
         this.options.sampleRate = options.sampleRate ?? 48000
         this.options.enableCC = options.enableCC ?? true
+        this.options.audioBufferSize = options.audioBufferSize ?? 512
         this.options.chorus = {
             enabled: options.chorus?.enabled ?? true,
             rate: options.chorus?.rate ?? 0.8,
