@@ -3,6 +3,8 @@ import { Worker } from 'node:worker_threads'
 
 // import: constants
 import fs from 'node:fs'
+import url from 'node:url';
+import path from 'node:path';
 import midiParser from 'midi-parser-js'
 import color from 'cli-color'
 import sf2 from 'soundfont2'
@@ -18,7 +20,9 @@ import { RendererOptions } from './interfaces/RendererOptions.js'
 
 // import: local types
 import { SampleEvent } from './types/SampleEvent.js'
+
 // code
+let __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 let lerp = (a: number, b: number, t: number) => a + (b - a) * t
 let toLinear = (cb: number) => {
     return 10 ** (-(cb / 10) / 20)
@@ -367,13 +371,13 @@ class Renderer {
         let promises: Promise<void>[] = []
         for (let i = 0; i < this.threadCount; i++) {
             let start = i * chunkSize
-            let end = Math.min(i * chunkSize + chunkSize, this.sampleEvents.length)
+            let end = Math.min(i * chunkSize + chunkSize, this.sampleEvents.length - 1)
             let events = this.sampleEvents.slice(start, end)
             if (events.length <= 0) {
                 promises.push(Promise.resolve())
                 continue
             }
-            let worker = new Worker(new URL('./threads/sample.js', import.meta.url), { 
+            let worker = new Worker(path.join(__dirname, './threads/sample.js'), { 
                 workerData: {
                     start, 
                     data: events,

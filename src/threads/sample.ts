@@ -16,8 +16,8 @@ let samples = workerData.samples.map(s => ({
 let pitchbend = {}
 let globalStart = workerData.data[0]?.t ?? 0
 let channelData = [
-    new Float32Array(workerData.sab[0]),
-    new Float32Array(workerData.sab[1])
+    new Float32Array(workerData.arrayBuffer[0]),
+    new Float32Array(workerData.arrayBuffer[1])
 ]
 var cc = {
     modulation: new Float32Array(16),
