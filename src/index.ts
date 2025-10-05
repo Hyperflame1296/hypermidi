@@ -196,8 +196,23 @@ class Renderer {
             l = e.t
             switch (e.k) {
                 case 0x08:
+                    var key = `${e.c}${e.d[0]}`
+                    if (!noteMap.get(key))
+                        noteMap.set(key, [])
+                    let n = noteMap.get(key).pop()
+                    if (n) {
+                        this.events.push({ 
+                            k: 'note',
+                            n: n[1][0], // MIDI note number
+                            v: n[1][1] / 127, // velocity
+                            t: n[0], // note on time
+                            c: e.c, // channel
+                            d: t - n[0] // note duration
+                        })
+                    }
+                    break
                 case 0x09: // note
-                    let key = `${e.c}${e.d[0]}`
+                    var key = `${e.c}${e.d[0]}`
                     if (!noteMap.get(key))
                         noteMap.set(key, [])
                     if (e.d[1] <= 0) { // note off
