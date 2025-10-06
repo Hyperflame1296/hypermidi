@@ -4,7 +4,6 @@ interface ControlChangeSampleEvent {
     n: number
     v: number
     c: number
-    id: number
 }
 export {
     ControlChangeSampleEvent

@@ -18,32 +18,69 @@ import { Synth } from './interfaces/Synth.js'
 import { SampleObject } from './interfaces/SampleObject.js'
 import { RendererOptions } from './interfaces/RendererOptions.js'
 
+// import: local classes
+import { Player } from './modules/jmidiplayer/index.js'
+
 // import: local types
 import { SampleEvent } from './types/SampleEvent.js'
+import { start } from 'node:repl';
 
 // code
 let __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 let lerp = (a: number, b: number, t: number) => a + (b - a) * t
-let toLinear = (cb: number) => {
-    return 10 ** (-(cb / 10) / 20)
-}
-let toTimeLinear = (tc: number) => {
-    return 2 ** (tc / 1200)
-}
+let toLinear = (cb: number) => 10 ** (-(cb / 10) / 20)
+let toTimeLinear = (tc: number) => 2 ** (tc / 1200)
 let tags = {
     info:  `[${color.greenBright('HyperMIDI')}] - [${color.cyanBright('INFO')}] - `,
     warn:  `[${color.greenBright('HyperMIDI')}] - [${color.yellowBright('WARNING')}] - `,
     error: `[${color.greenBright('HyperMIDI')}] - [${color.redBright('ERROR')}] - `
 }
+/*
+for future use:
+let player = player
+let data = new Uint8Array(player.tracks[1].packedBuffer)
+let events = []
+for (let i = 0; i < data.length; i += 8) {
+    let tick = (
+        (data[i + 0] << 0x18) +
+        (data[i + 1] << 0x10) +
+        (data[i + 2] << 0x08) +
+        (data[i + 3] << 0x00)
+    )
+    let type = data[i + 4]
+    switch (type) {
+        case 0x08:
+            events.push({
+                type: 0x08,
+                tick,
+                channel: data[i + 5],
+                note: data[i + 6]
+            })
+            break
+        case 0x09:
+            events.push({
+                type: 0x09,
+                tick,
+                channel: data[i + 5],
+                note: data[i + 6],
+                velocity: data[i + 7],
+            })
+            break
+    }
+}
+console.log(events)
+events = []
+*/
 /**
  * An audio renderer.
  */
 class Renderer {
-    sampleEvents: SampleEvent[] = []
-    controlChangeEvents: ControlChangeSampleEvent[] = []
-    pitchBendEvents: PitchBendSampleEvent[] = []
-    events = []
-    samples: SampleObject[] = []
+    #sampleEventsSAB: SharedArrayBuffer
+    #sampleEvents: Uint8Array<SharedArrayBuffer>
+    #controlChangeEvents: ControlChangeSampleEvent[] = []
+    #pitchBendEvents: PitchBendSampleEvent[] = []
+    #events = []
+    #samples: SampleObject[] = []
     sampleRate: number = 48000
     volume: number = 1.0
     soundfont: sf2.SoundFont2
@@ -57,14 +94,15 @@ class Renderer {
         release: 0.25
     }
     threadCount: number = 8
-    threads: Worker[] = []
+    #threads: Worker[] = []
     options: RendererOptions = {}
+    #internalPlayer: Player = new Player
     constructor(options: RendererOptions = {}) {
-        this.threadCount = options.threadCount ?? 8
-        this.options.sampleRate = options.sampleRate ?? 48000
-        this.options.enableCC = options.enableCC ?? true
-        this.options.enablePitchBend = options.enablePitchBend ?? false
-        this.options.audioBufferSize = options.audioBufferSize ?? 512
+        this.threadCount                = options.threadCount        ?? 8
+        this.options.sampleRate         = options.sampleRate         ?? 48000
+        this.options.enableCC           = options.enableCC           ?? true
+        this.options.polyphonyLimit     = options.polyphonyLimit     ?? 0
+        this.options.audioBufferSize    = options.audioBufferSize    ?? 512
         this.options.chorus = {
             enabled: options.chorus?.enabled ?? true,
             rate: options.chorus?.rate ?? 0.8,
@@ -105,7 +143,7 @@ class Renderer {
             rate, 
             this.options.sampleRate
         )
-        return {
+        let sample: SampleObject = {
             sample: iz.sample,
             pcm: [pcm, pcm],
             velocity: iz.generators[47]?.value,
@@ -113,6 +151,7 @@ class Renderer {
             release: this.synth.release ?? toTimeLinear(iz.generators[38]?.value ?? -Infinity),
             attenuation: toLinear(iz.generators[48]?.value ?? 0)
         }
+        return sample
     }
     #transpose(data: Float32Array, root: number, note: number): Float32Array {
         let diff = note - root;
@@ -149,50 +188,66 @@ class Renderer {
         if (this.options.logging?.info) console.log(tags.info + 'Loading soundfont...')
         this.soundfont = new sf2.SoundFont2(fs.readFileSync(path))
         if (this.options.logging?.info) console.log(tags.info + 'Creating samples...')
-        this.samples = Array(128).fill(0).map((x, i) => this.#getSample(0, 0, i))
+        this.#samples = Array(128).fill(0).map((x, i) => this.#getSample(0, 0, i))
         let end = performance.now()
         if (this.options.logging?.info) console.log(tags.info + `${color.greenBright('Finished loading soundfont!')} ${'(' + color.white(((end - start) / 1000).toFixed(1)) + 's)'}`)
     }
     /**
-     * Render a MIDI file to an audio buffer.
-     * @param path Path to a `.mid` or `.midi` file.
+     * Load a MIDI file.
+     * @param path Path to a `.mid` or `.mid` file.
      */
-    async render(path: string): Promise<[Float32Array<SharedArrayBuffer>, Float32Array<SharedArrayBuffer>]> {
+    async loadMIDI(path: string): Promise<void> {
         let start = performance.now()
         if (this.options.logging?.info) console.log(tags.info + 'Loading MIDI...')
-        let data = fs.readFileSync(path)
-        if (this.options.logging?.info) console.log(tags.info + 'Parsing MIDI...')
-        let midi = midiParser.parse(data)
+        await this.#internalPlayer.loadFile(path)
+        let end = performance.now()
+        if (this.options.logging?.info) console.log(tags.info + `${color.greenBright('Finished loading MIDI!')} ${'(' + color.white(((end - start) / 1000).toFixed(1)) + 's)'}`)
+    }
+    /**
+     * Render the currently loaded MIDI file to an audio buffer.
+     * @param path Path to a `.mid` or `.midi` file.
+     */
+    async render(): Promise<[Float32Array<SharedArrayBuffer>, Float32Array<SharedArrayBuffer>]> {
+        if (this.#internalPlayer.tracksParsed <= 0)
+            throw new Error('No MIDI is currently loaded!')
+        let start = performance.now()
         if (this.options.logging?.info) console.log(tags.info + 'Combining tracks...')
         var defaultBpm = 120
-        let ppq = midi.timeDivision
+        let ppq = this.#internalPlayer.ppqn
 
         let combinedEvents = []
         let usPerQuarter = 60_000_000 / defaultBpm
         let secondsPerTick = usPerQuarter / ppq / 1_000_000
-        for (let i = 0; i < midi.tracks; i++) {
-            let t = midi.track[i]
+        //let data = new Uint8Array(player.tracks[i].packedBuffer)
+        for (let i = 0; i < this.#internalPlayer.trackCount; i++) {
+            let t: ArrayBuffer = this.#internalPlayer.tracks[i].packedBuffer
             if (!t) continue
-            let tick = 0
-            for (let j = 0; j < t.event.length; j++) {
-                let e = t.event[j]
-                if (!e) continue
-                tick += e.deltaTime
-                switch (e.type) {
-                    case 0xff: // meta
+            let data = new Uint8Array(t)
+            for (let j = 0; j < t.byteLength; j += 8) {
+                let tick = (
+                    (data[j + 0] << 0x18) +
+                    (data[j + 1] << 0x10) +
+                    (data[j + 2] << 0x08) +
+                    (data[j + 3] << 0x00)
+                )
+                let type = data[j + 4]
+                switch (type) {
+                    case 0x51: // tempo change
                         combinedEvents.push({
-                            k: e.type,
-                            m: e.metaType,
-                            d: e.data,
-                            c: e.channel,
+                            k: 0x51,
+                            d: (
+                                (data[j + 5] << 0x10) +
+                                (data[j + 6] << 0x08) +
+                                (data[j + 7] << 0x00)
+                            ),
                             t: tick
                         })
                         break
                     default:
                         combinedEvents.push({
-                            k: e.type,
-                            d: e.data,
-                            c: e.channel,
+                            k: type,
+                            d: [data[j + 6], data[j + 7]],
+                            c: data[j + 5],
                             t: tick
                         })
                         break
@@ -200,13 +255,12 @@ class Renderer {
                 //j % 2000 === 0 ? console.log(`Track ${color.greenBright(i)} - [${color.blueBright(j.toLocaleString())} / ${color.blueBright(t.event.length.toLocaleString())}] events combined - Memory used: ${this.#formatSize(process.memoryUsage().heapTotal)}`) : void 0
             }
         }
-        midi = undefined
         combinedEvents = combinedEvents.sort((a, b) => a.t - b.t)
         if (this.options.logging?.info) console.log(tags.info + 'Mapping events...')
         let l = 0
         let t = 0
-        let noteMap: Map<string, [number, number][]> = new Map()
-        let holdPedalNotes: Set<[number, number]>[] = Array(16).fill(false).map(() => new Set())
+        let noteMap: Map<string, [number, [number, number]][]> = new Map()
+        let holdPedalNotes = Array(16).fill(false).map(() => new Set)
         let holdPedal: boolean[] = Array(16).fill(false)
         for (let e of combinedEvents) {
             let d = e.t - l
@@ -219,11 +273,11 @@ class Renderer {
                         noteMap.set(key, [])
                     let n = noteMap.get(key).pop()
                     if (n) {
-                        this.events.push({ 
+                        this.#events.push({ 
                             s: 1,
                             k: 'note',
                             n: n[1][0], // MIDI note number
-                            v: n[1][1] / 127, // velocity
+                            v: n[1][1], // velocity
                             t: n[0], // note on time
                             c: e.c, // channel
                             d: t - n[0] // note duration
@@ -237,27 +291,32 @@ class Renderer {
                     if (e.d[1] <= 0) { // note off
                         let n = noteMap.get(key).pop()
                         if (n) {
-                            this.events.push({ 
+                            this.#events.push({ 
                                 s: 1,
                                 k: 'note',
                                 n: n[1][0], // MIDI note number
-                                v: n[1][1] / 127, // velocity
+                                v: n[1][1], // velocity
                                 t: n[0], // note on time
                                 c: e.c, // channel
                                 d: t - n[0] // note duration
                             })
                         }
                     } else { // note on
-                        if (holdPedal[e.c])
+                        if (holdPedal[e.c]) {
+                            if (this.options.polyphonyLimit > 0 && holdPedalNotes[e.c].size >= this.options.polyphonyLimit)
+                                continue
                             holdPedalNotes[e.c].add([
                                 t,
                                 e.d
                             ])
-                        else 
+                        } else {
+                            if (this.options.polyphonyLimit > 0 && noteMap.get(key).length >= this.options.polyphonyLimit)
+                                noteMap.get(key).shift()
                             noteMap.get(key).push([
                                 t,
                                 e.d
-                            ])
+                            ] as [number, [number, number]] & number)
+                        }
                     }
                     break
                 case 0x0b: // cc
@@ -267,11 +326,13 @@ class Renderer {
                         } else { // off
                             holdPedal[e.c] = false
                             for (let n of holdPedalNotes[e.c]) {
-                                this.events.push({ 
+                                if (!n)
+                                    continue
+                                this.#events.push({ 
                                     s: 1,
                                     k: 'note',
                                     n: n[1][0], // MIDI note number
-                                    v: n[1][1] / 127, // velocity
+                                    v: n[1][1], // velocity
                                     t: n[0], // note on time
                                     c: e.c, // channel
                                     d: t - n[0] // note duration
@@ -280,7 +341,7 @@ class Renderer {
                             holdPedalNotes[e.c].clear()
                         }
                     } else if (this.options.enableCC) {
-                        this.events.push({
+                        this.#events.push({
                             s: 1,
                             k: 'cc',
                             t,
@@ -290,29 +351,18 @@ class Renderer {
                         })
                     }
                     break
-                case 0x0e: // pitch bend
-                    if (!this.options.enablePitchBend) continue
-                    this.events.push({
-                        s: 1,
-                        k: 'pitch',
-                        t,
-                        v: ((e.d[1] << 7) | e.d[0]) - 8192, // pitch bend amount
-                        c: e.c // channel
-                    })
-                    break
-                case 0xff: // meta
-                    switch (e.m) {
-                        case 0x51: // set tempo
-                            usPerQuarter = e.d
-                            secondsPerTick = usPerQuarter / ppq / 1_000_000
-                            break
-                    }
+                case 0x51: // tempo change
+                    usPerQuarter = e.d
+                    secondsPerTick = usPerQuarter / ppq / 1_000_000
                     break
 
             }
         }
+        noteMap.clear()
+        holdPedal = []
+        holdPedalNotes = []
         combinedEvents = []
-        return await this.renderNotes(this.events, start)
+        return await this.renderNotes(this.#events, start)
     }
     /**
      * Render a group of notes.
@@ -320,9 +370,56 @@ class Renderer {
      * @param start The time at which rendering started. Mostly used internally.
      */
     async renderNotes(events: any[] = [], start: number = performance.now()): Promise<[Float32Array<SharedArrayBuffer>, Float32Array<SharedArrayBuffer>]> {
-        this.events = events.map(e => {
-            if (e.s == 1) return e
+        const EVENT_SIZE = 12
+        this.#events = events.map(e => {
+            if (e.s === 1) return e
             switch (e.type) {
+                case 'note':
+                    return ({
+                        k: e.type,
+                        n: e.note, // MIDI note number
+                        v: Math.floor((e.velocity ?? 1.0) * 127), // velocity
+                        t: e.time, // note on time
+                        c: e.channel ?? 0,
+                        d: e.duration // note duration
+                    })
+                case 'cc':
+                    if (!this.options.enableCC) return
+                    return ({
+                        k: e.type,
+                        t: e.time,
+                        n: e.cc, // cc number
+                        v: (e.value ?? 1.0), // cc value
+                        c: e.channel ?? 0,
+                    })
+                default:
+                    throw new Error(`Invalid event type: ${e.type}`)
+            }
+        })
+        if (this.#events.length === 0) throw new Error('There are no note events in this MIDI!');
+        if (this.options.logging?.info) console.log(tags.info + 'Sorting events...')
+        this.#events = this.#events.sort((a, b) => a.t - b.t)
+        if (this.options.logging?.info) console.log(tags.info + 'Creating sample event buffer...')
+        this.#sampleEventsSAB = new SharedArrayBuffer(this.#events.length * 12)
+        this.#sampleEvents = new Uint8Array(this.#sampleEventsSAB)
+        if (this.options.logging?.info) console.log(tags.info + 'Creating empty audio channel...')
+        let length = this.#events.findLast(v => !!v).t + (this.#events.findLast(v => !!v).d ?? 0) + 1
+        let arrayBuffer: [SharedArrayBuffer, SharedArrayBuffer] = [
+            new SharedArrayBuffer(Float32Array.BYTES_PER_ELEMENT * Math.floor(this.options.sampleRate * length)),
+            new SharedArrayBuffer(Float32Array.BYTES_PER_ELEMENT * Math.floor(this.options.sampleRate * length))
+        ]
+        let channelData: [Float32Array<SharedArrayBuffer>, Float32Array<SharedArrayBuffer>] = [
+            new Float32Array(arrayBuffer[0]), 
+            new Float32Array(arrayBuffer[1])
+        ]
+        if (this.options.logging?.info) console.log(tags.info + 'Adding events...')
+        let id = 0
+        let eventCount = 0
+        let offset = 0
+        for (let e of this.#events) {
+            if (!e)
+                return
+            /*
                 case 'note':
                     return ({
                         k: e.type,
@@ -341,43 +438,29 @@ class Renderer {
                         v: (e.value ?? 1.0), // cc value
                         c: e.channel ?? 0,
                     })
-                case 'pitch':
-                    if (!this.options.enablePitchBend) return
-                    return ({
-                        k: e.type,
-                        t: e.time,
-                        v: (e.value ?? 1.0), // cc value
-                        c: e.channel ?? 0,
-                    })
-                default:
-                    throw new Error(`Invalid event type: ${e.type}`)
-            }
-        })
-        if (this.events.length === 0) throw new Error('There are no note events in this MIDI!');
-        if (this.options.logging?.info) console.log(tags.info + 'Sorting events...')
-        this.events = this.events.sort((a, b) => a.t - b.t)
-        if (this.options.logging?.info) console.log(tags.info + 'Creating empty audio channel...')
-        let length = this.events.findLast(v => !!v).t + (this.events.findLast(v => !!v).d ?? 0) + 1
-        let arrayBuffer: [SharedArrayBuffer, SharedArrayBuffer] = [
-            new SharedArrayBuffer(Float32Array.BYTES_PER_ELEMENT * Math.floor(this.options.sampleRate * length)),
-            new SharedArrayBuffer(Float32Array.BYTES_PER_ELEMENT * Math.floor(this.options.sampleRate * length))
-        ]
-        let channelData: [Float32Array<SharedArrayBuffer>, Float32Array<SharedArrayBuffer>] = [
-            new Float32Array(arrayBuffer[0]), 
-            new Float32Array(arrayBuffer[1])
-        ]
-        if (this.options.logging?.info) console.log(tags.info + 'Adding events...')
-        let id = 0
-        for (let e of this.events) {
-            if (!e)
-                return
+            */
             switch (e.k) {
                 case 'note':
-                    var noteSampleEvent: NoteSampleEvent = {
-                        ...e,
-                        id: id++
+                    let t = Math.floor(e.t * this.sampleRate)
+                    let d = Math.floor(e.d * this.sampleRate)
+                    let bytes = [
+                        (t >> 0x18) & 0xff, // time in samples
+                        (t >> 0x10) & 0xff, 
+                        (t >> 0x08) & 0xff, 
+                        (t >> 0x00) & 0xff,   
+                        (d >> 0x18) & 0xff, // duration in samples
+                        (d >> 0x10) & 0xff,
+                        (d >> 0x08) & 0xff,
+                        (d >> 0x00) & 0xff,        
+                        0x01              , // event type
+                        e.c               , // channel
+                        e.n               , // note number
+                        e.v               , // velocity              
+                    ]
+                    for (let byte of bytes) {
+                        this.#sampleEvents[offset++] = byte
                     }
-                    this.sampleEvents.push(noteSampleEvent)
+                    eventCount++
                     break
                 case 'cc':
                     if (!this.options.enableCC) continue
@@ -385,45 +468,40 @@ class Renderer {
                         ...e,
                         id: id++
                     }
-                    this.controlChangeEvents.push(ccSampleEvent)
-                    break
-                case 'pitch':
-                    if (!this.options.enablePitchBend) continue
-                    var pbSampleEvent: PitchBendSampleEvent = {
-                        ...e,
-                        id: id++
-                    }
-                    this.pitchBendEvents.push(pbSampleEvent)
+                    this.#controlChangeEvents.push(ccSampleEvent)
                     break
             }
         }
-        this.events = []
-        this.controlChangeEvents = this.controlChangeEvents.sort((a, b) => a.t - b.t)
+        this.#events = []
+        this.#controlChangeEvents = this.#controlChangeEvents.sort((a, b) => a.t - b.t)
         if (this.options.logging?.info) console.log(tags.info + 'Rendering...')
-        let chunkSize = Math.ceil(this.sampleEvents.length / this.threadCount)
+        let chunkSize = Math.ceil(eventCount / this.threadCount)
         let promises: Promise<void>[] = []
+        let sharedSamples = this.#samples.map(s => ({
+            pcm: [s.pcm[0].buffer, s.pcm[1].buffer],
+            velocity: s.velocity,
+            attack: s.attack,
+            release: s.release,
+            attenuation: s.attenuation
+        }))
         for (let i = 0; i < this.threadCount; i++) {
-            let start = i * chunkSize
-            let end = Math.min(i * chunkSize + chunkSize, this.sampleEvents.length)
-            let events = this.sampleEvents.slice(start, end)
-            if (events.length <= 0) {
+            let startEvent = i * chunkSize
+            let endEvent = Math.min(startEvent + chunkSize, eventCount)
+            if (startEvent >= endEvent) {
                 promises.push(Promise.resolve())
                 continue
             }
+            let start = startEvent * EVENT_SIZE, 
+                end   = endEvent   * EVENT_SIZE
+            let events = this.#sampleEvents.subarray(start, end)
             let worker = new Worker(path.join(__dirname, './threads/sample.js'), { 
                 workerData: {
                     start, 
                     data: events,
                     sampleRate: this.options.sampleRate,
-                    samples: this.samples.map(s => ({
-                        pcm: [s.pcm[0].buffer, s.pcm[1].buffer], // SABs
-                        velocity: s.velocity,
-                        attack: s.attack,
-                        release: s.release,
-                        attenuation: s.attenuation
-                    })),
-                    cc: this.controlChangeEvents,
-                    pb: this.pitchBendEvents,
+                    samples: sharedSamples,
+                    cc: this.#controlChangeEvents,
+                    pb: this.#pitchBendEvents,
                     opts: this.options,
                     id: i,
                     arrayBuffer
@@ -448,15 +526,15 @@ class Renderer {
                 })
             })
             promises.push(p)
-            this.threads[i] = worker
-            if (this.options.logging?.info) console.log(tags.info + `Initialized thread ${i + 1} for events ${start.toLocaleString()} to ${end.toLocaleString()}!`);
+            this.#threads[i] = worker
+            if (this.options.logging?.info) console.log(tags.info + `Initialized thread ${i + 1} for events ${(startEvent).toLocaleString()} to ${(endEvent).toLocaleString()}!`);
         }
-        
-        this.sampleEvents = []
-        this.controlChangeEvents = []
-        this.pitchBendEvents = []
+        this.#sampleEventsSAB = new SharedArrayBuffer()
+        this.#sampleEvents = new Uint8Array(this.#sampleEventsSAB)
+        this.#controlChangeEvents = []
+        this.#pitchBendEvents = []
         await Promise.all(promises)
-        this.threads = []
+        this.#threads = []
         if (this.options.logging?.info) console.log(tags.info + 'Applying limiter...')
         let gain = 1; // start with full gain
 

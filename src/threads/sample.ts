@@ -13,7 +13,6 @@ let samples = workerData.samples.map(s => ({
     release: s.release,
     attenuation: s.attenuation
 }))
-let pitchbend = {}
 let globalStart = workerData.data[0]?.t ?? 0
 let channelData = [
     new Float32Array(workerData.arrayBuffer[0]),
@@ -54,38 +53,36 @@ function getCCValue(list, t) {
     }
     return lastVal;
 }
-function transpose(data: Float32Array, root: number, note: number): Float32Array {
-    let diff = note - root;
-    let ratio = 2 ** (diff / 12);
-    let len = Math.floor(data.length / ratio);
-    let out = new Float32Array(len);
-    for (let i = 0; i < len; i++) {
-        let j = Math.floor(i * ratio)
-        let k = Math.ceil (i * ratio)
-        let t = (i * ratio) - j
-        out[i] = lerp(data[j] ?? 0, data[k] ?? 0, t)
-    }
-    return out
-}
 let lerp = (a, b, t) => a + (b - a) * t
-for (let i = 0; i < workerData.data.length; i++) {
-    let sampleEvent: SampleEvent = workerData.data[i]
-    if (!sampleEvent)
-        continue
-    if (sampleEvent.c < 0 || sampleEvent.c >= 16) continue;
-    switch (sampleEvent.k) {
-        case 'note':
-            let start = Math.floor(sampleEvent.t * workerData.sampleRate)
-            let stop = Math.floor((sampleEvent.t + sampleEvent.d) * workerData.sampleRate)
-            let sample = samples[sampleEvent.n]
+for (let i = 0; i < workerData.data.length; i += 12) {
+    let time = (
+        (workerData.data[i + 0] << 0x18) +
+        (workerData.data[i + 1] << 0x10) +
+        (workerData.data[i + 2] << 0x08) +
+        (workerData.data[i + 3] << 0x00)
+    )
+    let duration = (
+        (workerData.data[i + 4] << 0x18) +
+        (workerData.data[i + 5] << 0x10) +
+        (workerData.data[i + 6] << 0x08) +
+        (workerData.data[i + 7] << 0x00)
+    )
+    let type = workerData.data[i + 8]
+    let channel = workerData.data[i + 9]
+    let eventData = [
+        workerData.data[i + 10],
+        workerData.data[i + 11]
+    ]
+    if (channel < 0 || channel >= 16) continue;
+    switch (type) {
+        case 0x01: // note
+            let start = time
+            let stop = time + duration
+            let sample = samples[eventData[0]]
+            let velocity = eventData[1] / 127
             if (start >= channelData[0].length)
                 continue
-            let bend = workerData.pb.findLast(p => p.t <= sampleEvent.t && p.c === sampleEvent.c)?.v ?? 0
-            let pbNote = (bend / 8192) * 12
-            let pcm = [
-                bend == 0 ? sample.pcm[0] : transpose(sample.pcm[0], sampleEvent.n, sampleEvent.n + pbNote),
-                bend == 0 ? sample.pcm[1] : transpose(sample.pcm[1], sampleEvent.n, sampleEvent.n + pbNote)
-            ];
+            let pcm = sample.pcm
             let bufSize = workerData.opts?.audioBufferSize
             let release = Math.floor(sample.release * workerData.sampleRate)
             let attack = Math.floor(sample.attack * workerData.sampleRate)
@@ -96,14 +93,14 @@ for (let i = 0; i < workerData.data.length; i++) {
                 ]
                 if (workerData.opts?.enableCC) {
                     let t = (start + j) / workerData.sampleRate
-                    let c = sampleEvent.c
+                    let c = channel
                     cc.modulation[c] = getCCValue(ccMap[0x01][c], t) ?? 0.0
                     cc.volume[c]     = getCCValue(ccMap[0x07][c], t) ?? 0.787
                     cc.expression[c] = getCCValue(ccMap[0x0b][c], t) ?? 1.0
                     cc.chorus[c]     = getCCValue(ccMap[0x5d][c], t) ?? 0.0
                     cc.pan[c]        = getCCValue(ccMap[0x0a][c], t) ?? 0.5
                 } else {
-                    let c = sampleEvent.c
+                    let c = channel
                     cc.modulation[c] = 0.0
                     cc.volume[c]     = 0.787
                     cc.expression[c] = 1.0
@@ -119,14 +116,14 @@ for (let i = 0; i < workerData.data.length; i++) {
                         o1 = channelData[1][index] ?? 0.0
                     let a = index >= start + attack ? 1 : (index - start) / attack
                     let r = index >= stop ? 1 - (index - stop) / release : 1
-                    let m = cc.modulation[sampleEvent.c]
-                    let v = cc.volume[sampleEvent.c] * cc.expression[sampleEvent.c]
-                    let y0 = data[0][k] * sample.attenuation * ((sample.velocity ?? sampleEvent.v) * (sample.velocity ?? sampleEvent.v)) * (r * r) * (a * a) * v * (1 - cc.pan[sampleEvent.c]),
-                        y1 = data[1][k] * sample.attenuation * ((sample.velocity ?? sampleEvent.v) * (sample.velocity ?? sampleEvent.v)) * (r * r) * (a * a) * v * (cc.pan[sampleEvent.c] - 0)
+                    let m = cc.modulation[channel]
+                    let v = cc.volume[channel] * cc.expression[channel]
+                    let y0 = data[0][k] * sample.attenuation * ((sample.velocity ?? velocity) * (sample.velocity ?? velocity)) * (r * r) * (a * a) * v * (1 - cc.pan[channel]),
+                        y1 = data[1][k] * sample.attenuation * ((sample.velocity ?? velocity) * (sample.velocity ?? velocity)) * (r * r) * (a * a) * v * (cc.pan[channel] - 0)
 
                     // code written by ChatGPT
                     {
-                        if (cc.chorus[sampleEvent.c] <= 0 || !workerData.opts?.chorus?.enabled) { // little integration by me to ignore chorus when its value is 0
+                        if (cc.chorus[channel] <= 0 || !workerData.opts?.chorus?.enabled) { // little integration by me to ignore chorus when its value is 0
                             channelData[0][index] = o0 + y0;
                             channelData[1][index] = o1 + y1;
                         } else {
@@ -157,7 +154,7 @@ for (let i = 0; i < workerData.data.length; i++) {
                             let delayedR = lerp(chorusBufferR[i0R], chorusBufferR[i1R], fracR);
 
                             // Mix wet/dry (scaled by CC)
-                            let mix = (workerData.opts?.chorus?.mix ?? 0.5) * cc.chorus[sampleEvent.c];
+                            let mix = (workerData.opts?.chorus?.mix ?? 0.5) * cc.chorus[channel];
                             let wet0 = y0 * (1 - mix) + delayedL * mix;
                             let wet1 = y1 * (1 - mix) + delayedR * mix;
 

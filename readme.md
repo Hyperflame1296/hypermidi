@@ -6,23 +6,9 @@ To use this package, you first need a soundfont (`.sf2` file), and a MIDI file (
 Below is an example of how to use the `Renderer`:
 ```js
 import { Renderer } from 'hypermidi'
-let renderer = new Renderer({ // all options are optional
+let renderer = new Renderer({
     threadCount: 8,
-    sampleRate: 48000,
-    enableCC: true,
-    enablePitchBend: true,
-    audioBufferSize: 512,
-    chorus: {
-        enabled: true,
-        rate: 0.8,
-        depth: 0.006,
-        mix: 0.5
-    },
-    logging: {
-        info: false,
-        warn: true,
-        error: true
-    }
+    sampleRate: 48000
 })
 renderer.loadSoundfont('path/to/soundfont.sf2') // load a soundfont
 let channelData = await renderer.render('path/to/midi/file.mid') // render a MIDI file

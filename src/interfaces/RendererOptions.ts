@@ -1,29 +1,29 @@
 interface RendererOptions {
     /**
-     * The number of threads to use for rendering.
-     * Default is `8`.
+     * The number of threads to use for rendering.  
+     * - Defaults to `8`.
      */
     threadCount?: number
     /**
      * The audio sample rate in Hz.  
-     * Default is `48000`.
+     * - Defaults to `48000`.
      */
     sampleRate?: number
     /**
      * Enable control change (CC) processing.  
-     * Default is `true`.
+     * - Defaults to `true`.
      */
     enableCC?: boolean
     /**
-     * Enable pitch bend processing.
-     * Default is `false`.
-     * This option MASSIVELY decreases performance as of right now, which is why its off by default
+     * The maximum polyphony.  
+     * - A value of `0` is unlimited.  
+     * - Defaults to `0`.
      */
-    enablePitchBend?: boolean
+    polyphonyLimit?: number
     /**
      * The size of audio buffers used during rendering, in samples.  
-     * Larger buffer sizes may improve performance but may decrease accuracy.  
-     * Default is `512`.
+     * - Larger buffer sizes may improve performance but may decrease accuracy.  
+     * - Defaults to `512`.
      */
     audioBufferSize?: number
     /**
@@ -32,22 +32,22 @@ interface RendererOptions {
     chorus?: {
         /**
          * Enable chorus effect.
-         * Default is `true`.
+         * - Defaults to `true`.
          */
         enabled?: boolean 
         /**
          * Chorus rate in Hz.
-         * Default is `0.8`.
+         * - Defaults to `0.8`.
          */
         rate?: number
         /**
          * Chorus depth in seconds.
-         * Default is `0.006` (6ms).
+         * - Defaults to `0.006` (6ms).
          */
         depth?: number
         /**
          * Chorus wet/dry mix, from `0.0` (dry only) to `1.0` (wet only).
-         * Default is `0.5`.
+         * - Defaults to `0.5`.
          */
         mix?: number
     }
@@ -57,17 +57,17 @@ interface RendererOptions {
     logging?: {
         /**
          * Log general info messages.
-         * Default is `false`.
+         * - Defaults to `false`.
          */
         info?: boolean
         /**
          * Log warning messages.
-         * Default is `true`.
+         * - Defaults to `true`.
          */
         warn?: boolean
         /**
          * Log error messages.
-         * Default is `true`.
+         * - Defaults to `true`.
          */
         error?: boolean
     }
