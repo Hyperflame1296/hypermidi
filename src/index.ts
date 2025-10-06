@@ -11,19 +11,13 @@ import sf2 from 'soundfont2'
 
 // import: local interfaces
 import { Limiter } from './interfaces/Limiter.js'
-import { NoteSampleEvent } from './interfaces/NoteSampleEvent.js'
 import { ControlChangeSampleEvent } from './interfaces/ControlChangeSampleEvent.js'
-import { PitchBendSampleEvent } from './interfaces/PitchBendSampleEvent.js'
 import { Synth } from './interfaces/Synth.js'
 import { SampleObject } from './interfaces/SampleObject.js'
 import { RendererOptions } from './interfaces/RendererOptions.js'
 
 // import: local classes
 import { Player } from './modules/jmidiplayer/index.js'
-
-// import: local types
-import { SampleEvent } from './types/SampleEvent.js'
-import { start } from 'node:repl';
 
 // code
 let __dirname = path.dirname(url.fileURLToPath(import.meta.url));
@@ -75,15 +69,16 @@ events = []
  * An audio renderer.
  */
 class Renderer {
-    #sampleEventsSAB: SharedArrayBuffer
-    #sampleEvents: Uint8Array<SharedArrayBuffer>
+    #sampleEvents: Uint8Array
     #controlChangeEvents: ControlChangeSampleEvent[] = []
-    #pitchBendEvents: PitchBendSampleEvent[] = []
-    #events = []
     #samples: SampleObject[] = []
-    sampleRate: number = 48000
+    #eventCount: number = 0
+    #threads: Worker[] = []
+    #internalPlayer: Player = new Player()
     volume: number = 1.0
     soundfont: sf2.SoundFont2
+    threadCount: number = 8
+    options: RendererOptions = {}
     limiter: Limiter = {
         attack: 0.01,
         release: 0.0001, // 0.001
@@ -93,10 +88,6 @@ class Renderer {
         attack: 0.0,
         release: 0.25
     }
-    threadCount: number = 8
-    #threads: Worker[] = []
-    options: RendererOptions = {}
-    #internalPlayer: Player = new Player
     constructor(options: RendererOptions = {}) {
         this.threadCount                = options.threadCount        ?? 8
         this.options.sampleRate         = options.sampleRate         ?? 48000
@@ -179,6 +170,23 @@ class Renderer {
         }
         return out
     }
+    #last(data: Uint8Array) {
+        let slice = data.subarray(data.length - 12, data.length)
+        return {
+            t: (
+                (slice[0] << 0x18) +
+                (slice[1] << 0x10) +
+                (slice[2] << 0x08) +
+                (slice[3] << 0x00)
+            ),
+            d: (
+                (slice[4] << 0x18) +
+                (slice[5] << 0x10) +
+                (slice[6] << 0x08) +
+                (slice[7] << 0x00)
+            )
+        }
+    }
     /**
      * Load a SoundFont file.
      * @param path Path to a `.sf2` file.
@@ -259,190 +267,20 @@ class Renderer {
         if (this.options.logging?.info) console.log(tags.info + 'Mapping events...')
         let l = 0
         let t = 0
-        let noteMap: Map<string, [number, [number, number]][]> = new Map()
-        let holdPedalNotes = Array(16).fill(false).map(() => new Set)
+        let noteMap: Map<string, [number, number][]> = new Map()
+        let holdPedalNotes: [number?, number?][][] = Array(16).fill(0).map(() => [])
         let holdPedal: boolean[] = Array(16).fill(false)
+        let offset = 0
+        this.#eventCount = 0
+        let sampleEventsA = new Uint8Array(combinedEvents.filter(e => e.type !== 0x08 && e.type !== 0x0b).length * 12)
         for (let e of combinedEvents) {
             let d = e.t - l
             t += d * secondsPerTick
             l = e.t
-            switch (e.k) {
-                case 0x08:
-                    var key = `${e.c}${e.d[0]}`
-                    if (!noteMap.get(key))
-                        noteMap.set(key, [])
-                    let n = noteMap.get(key).pop()
-                    if (n) {
-                        this.#events.push({ 
-                            s: 1,
-                            k: 'note',
-                            n: n[1][0], // MIDI note number
-                            v: n[1][1], // velocity
-                            t: n[0], // note on time
-                            c: e.c, // channel
-                            d: t - n[0] // note duration
-                        })
-                    }
-                    break
-                case 0x09: // note
-                    var key = `${e.c}${e.d[0]}`
-                    if (!noteMap.get(key))
-                        noteMap.set(key, [])
-                    if (e.d[1] <= 0) { // note off
-                        let n = noteMap.get(key).pop()
-                        if (n) {
-                            this.#events.push({ 
-                                s: 1,
-                                k: 'note',
-                                n: n[1][0], // MIDI note number
-                                v: n[1][1], // velocity
-                                t: n[0], // note on time
-                                c: e.c, // channel
-                                d: t - n[0] // note duration
-                            })
-                        }
-                    } else { // note on
-                        if (holdPedal[e.c]) {
-                            if (this.options.polyphonyLimit > 0 && holdPedalNotes[e.c].size >= this.options.polyphonyLimit)
-                                continue
-                            holdPedalNotes[e.c].add([
-                                t,
-                                e.d
-                            ])
-                        } else {
-                            if (this.options.polyphonyLimit > 0 && noteMap.get(key).length >= this.options.polyphonyLimit)
-                                noteMap.get(key).shift()
-                            noteMap.get(key).push([
-                                t,
-                                e.d
-                            ] as [number, [number, number]] & number)
-                        }
-                    }
-                    break
-                case 0x0b: // cc
-                    if (e.d[0] === 0x40) { // hold pedal
-                        if (e.d[1] >= 64) { // on
-                            holdPedal[e.c] = true
-                        } else { // off
-                            holdPedal[e.c] = false
-                            for (let n of holdPedalNotes[e.c]) {
-                                if (!n)
-                                    continue
-                                this.#events.push({ 
-                                    s: 1,
-                                    k: 'note',
-                                    n: n[1][0], // MIDI note number
-                                    v: n[1][1], // velocity
-                                    t: n[0], // note on time
-                                    c: e.c, // channel
-                                    d: t - n[0] // note duration
-                                })
-                            }
-                            holdPedalNotes[e.c].clear()
-                        }
-                    } else if (this.options.enableCC) {
-                        this.#events.push({
-                            s: 1,
-                            k: 'cc',
-                            t,
-                            n: e.d[0], // cc number
-                            v: e.d[1] / 127, // cc value,
-                            c: e.c // channel
-                        })
-                    }
-                    break
-                case 0x51: // tempo change
-                    usPerQuarter = e.d
-                    secondsPerTick = usPerQuarter / ppq / 1_000_000
-                    break
-
-            }
-        }
-        noteMap.clear()
-        holdPedal = []
-        holdPedalNotes = []
-        combinedEvents = []
-        return await this.renderNotes(this.#events, start)
-    }
-    /**
-     * Render a group of notes.
-     * @param events Array of note events.
-     * @param start The time at which rendering started. Mostly used internally.
-     */
-    async renderNotes(events: any[] = [], start: number = performance.now()): Promise<[Float32Array<SharedArrayBuffer>, Float32Array<SharedArrayBuffer>]> {
-        const EVENT_SIZE = 12
-        this.#events = events.map(e => {
-            if (e.s === 1) return e
-            switch (e.type) {
-                case 'note':
-                    return ({
-                        k: e.type,
-                        n: e.note, // MIDI note number
-                        v: Math.floor((e.velocity ?? 1.0) * 127), // velocity
-                        t: e.time, // note on time
-                        c: e.channel ?? 0,
-                        d: e.duration // note duration
-                    })
-                case 'cc':
-                    if (!this.options.enableCC) return
-                    return ({
-                        k: e.type,
-                        t: e.time,
-                        n: e.cc, // cc number
-                        v: (e.value ?? 1.0), // cc value
-                        c: e.channel ?? 0,
-                    })
-                default:
-                    throw new Error(`Invalid event type: ${e.type}`)
-            }
-        })
-        if (this.#events.length === 0) throw new Error('There are no note events in this MIDI!');
-        if (this.options.logging?.info) console.log(tags.info + 'Sorting events...')
-        this.#events = this.#events.sort((a, b) => a.t - b.t)
-        if (this.options.logging?.info) console.log(tags.info + 'Creating sample event buffer...')
-        this.#sampleEventsSAB = new SharedArrayBuffer(this.#events.length * 12)
-        this.#sampleEvents = new Uint8Array(this.#sampleEventsSAB)
-        if (this.options.logging?.info) console.log(tags.info + 'Creating empty audio channel...')
-        let length = this.#events.findLast(v => !!v).t + (this.#events.findLast(v => !!v).d ?? 0) + 1
-        let arrayBuffer: [SharedArrayBuffer, SharedArrayBuffer] = [
-            new SharedArrayBuffer(Float32Array.BYTES_PER_ELEMENT * Math.floor(this.options.sampleRate * length)),
-            new SharedArrayBuffer(Float32Array.BYTES_PER_ELEMENT * Math.floor(this.options.sampleRate * length))
-        ]
-        let channelData: [Float32Array<SharedArrayBuffer>, Float32Array<SharedArrayBuffer>] = [
-            new Float32Array(arrayBuffer[0]), 
-            new Float32Array(arrayBuffer[1])
-        ]
-        if (this.options.logging?.info) console.log(tags.info + 'Adding events...')
-        let id = 0
-        let eventCount = 0
-        let offset = 0
-        for (let e of this.#events) {
-            if (!e)
-                return
             /*
                 case 'note':
-                    return ({
-                        k: e.type,
-                        n: e.note, // MIDI note number
-                        v: (e.velocity ?? 1.0), // velocity
-                        t: e.time, // note on time
-                        c: e.channel ?? 0,
-                        d: e.duration // note duration
-                    })
-                case 'cc':
-                    if (!this.options.enableCC) return
-                    return ({
-                        k: e.type,
-                        t: e.time,
-                        n: e.cc, // cc number
-                        v: (e.value ?? 1.0), // cc value
-                        c: e.channel ?? 0,
-                    })
-            */
-            switch (e.k) {
-                case 'note':
-                    let t = Math.floor(e.t * this.sampleRate)
-                    let d = Math.floor(e.d * this.sampleRate)
+                    let t = Math.floor(e.t * this.options.sampleRate)
+                    let d = Math.floor(e.d * this.options.sampleRate)
                     let bytes = [
                         (t >> 0x18) & 0xff, // time in samples
                         (t >> 0x10) & 0xff, 
@@ -470,9 +308,168 @@ class Renderer {
                     }
                     this.#controlChangeEvents.push(ccSampleEvent)
                     break
+            */
+            let bytes = []
+            switch (e.k) {
+                case 0x08:
+                    var key = `${e.c}${e.d[0]}`
+                    if (!noteMap.get(key))
+                        noteMap.set(key, [])
+                    let n = noteMap.get(key).pop()
+                    if (n) {
+                        let o = e.d[0]
+                        let v = n[1]
+                        let c = e.c
+                        let h = Math.floor((n[0]) * this.options.sampleRate)
+                        let d = Math.floor((t - n[0]) * this.options.sampleRate)
+                        bytes.push(
+                            (h >> 0x18) & 0xff, // time in samples
+                            (h >> 0x10) & 0xff, 
+                            (h >> 0x08) & 0xff, 
+                            (h >> 0x00) & 0xff,   
+                            (d >> 0x18) & 0xff, // duration in samples
+                            (d >> 0x10) & 0xff,
+                            (d >> 0x08) & 0xff,
+                            (d >> 0x00) & 0xff,        
+                            0x01              , // event type
+                            c               , // channel
+                            o               , // note number
+                            v               , // velocity              
+                        )
+                    }
+                    break
+                case 0x09: // note
+                    var key = `${e.c}${e.d[0]}`
+                    if (!noteMap.get(key))
+                        noteMap.set(key, [])
+                    if (e.d[1] <= 0) { // note off
+                        let n = noteMap.get(key).pop()
+                        if (n) {
+                            let o = e.d[0]
+                            let v = n[1]
+                            let c = e.c
+                            let h = Math.floor((n[0]) * this.options.sampleRate)
+                            let d = Math.floor((t - n[0]) * this.options.sampleRate)
+                            bytes.push(
+                                (h >> 0x18) & 0xff, // time in samples
+                                (h >> 0x10) & 0xff, 
+                                (h >> 0x08) & 0xff, 
+                                (h >> 0x00) & 0xff,   
+                                (d >> 0x18) & 0xff, // duration in samples
+                                (d >> 0x10) & 0xff,
+                                (d >> 0x08) & 0xff,
+                                (d >> 0x00) & 0xff,        
+                                0x01              , // event type
+                                c               , // channel
+                                o               , // note number
+                                v               , // velocity              
+                            )
+                        }
+                    } else { // note on
+                        if (holdPedal[e.c]) {
+                            if (this.options.polyphonyLimit > 0 && holdPedalNotes[e.c].length >= this.options.polyphonyLimit)
+                                continue
+                            holdPedalNotes[e.c].push([
+                                t,
+                                e.d
+                            ])
+                        } else {
+                            if (this.options.polyphonyLimit > 0 && noteMap.get(key).length >= this.options.polyphonyLimit)
+                                noteMap.get(key).shift()
+                            noteMap.get(key).push([
+                                t,
+                                e.d[1]
+                            ])
+                        }
+                    }
+                    break
+                case 0x0b: // cc
+                    if (e.d[0] === 0x40) { // hold pedal
+                        if (e.d[1] >= 0x40) { // on
+                            holdPedal[e.c] = true
+                        } else { // off
+                            holdPedal[e.c] = false
+                            if (holdPedalNotes[e.c].length <= 0)
+                                continue
+                            for (let n of holdPedalNotes[e.c]) {
+                                if (!n)
+                                    continue
+                                let o = n[1][0]
+                                let v = n[1][1]
+                                let c = e.c
+                                let h = Math.floor((n[0]) * this.options.sampleRate)
+                                let d = Math.floor((t - n[0]) * this.options.sampleRate)
+                                bytes.push(
+                                    (h >> 0x18) & 0xff, // time in samples
+                                    (h >> 0x10) & 0xff, 
+                                    (h >> 0x08) & 0xff, 
+                                    (h >> 0x00) & 0xff,   
+                                    (d >> 0x18) & 0xff, // duration in samples
+                                    (d >> 0x10) & 0xff,
+                                    (d >> 0x08) & 0xff,
+                                    (d >> 0x00) & 0xff,        
+                                    0x01              , // event type
+                                    c               , // channel
+                                    o               , // note number
+                                    v               , // velocity              
+                                )
+                            }
+                            holdPedalNotes[e.c].length = 0
+                            holdPedalNotes[e.c] = []
+                        }
+                    } else if (this.options.enableCC) {
+                        this.#controlChangeEvents.push({
+                            t,
+                            n: e.d[0], // cc number
+                            v: e.d[1] / 127, // cc value,
+                            c: e.c // channel
+                        })
+                    }
+                    break
+                case 0x51: // tempo change
+                    usPerQuarter = e.d
+                    secondsPerTick = usPerQuarter / ppq / 1_000_000
+                    break
+
+            }
+            if (bytes.length > 0) {
+                for (let byte of bytes) {
+                    sampleEventsA[offset++] = byte
+                }
+                this.#eventCount += Math.floor(bytes.length / 12)
             }
         }
-        this.#events = []
+        this.#sampleEvents = new Uint8Array(this.#eventCount * 12)
+        this.#sampleEvents = sampleEventsA.subarray(0, offset)
+        noteMap.clear()
+        holdPedal.length = 0
+        holdPedalNotes.length = 0
+        combinedEvents.length = 0
+        holdPedal = []
+        holdPedalNotes = []
+        combinedEvents = []
+        return await this.renderNotes(this.#sampleEvents, start)
+    }
+    /**
+     * Render a group of notes.
+     * @param events Array of note events.
+     * @param start The time at which rendering started. Mostly used internally.
+     */
+    async renderNotes(events: Uint8Array, start: number = performance.now()): Promise<[Float32Array<SharedArrayBuffer>, Float32Array<SharedArrayBuffer>]> {
+        const EVENT_SIZE = 12
+        let eventCount = this.#eventCount ?? events.length / 12
+        if (events.byteLength <= 0) throw new Error('There are no note events in this MIDI!');
+        if (this.options.logging?.info) console.log(tags.info + 'Creating sample event buffer...')
+        if (this.options.logging?.info) console.log(tags.info + 'Creating empty audio channel...')
+        let length = this.#last(this.#sampleEvents).t + this.#last(this.#sampleEvents).d + this.options.sampleRate
+        let arrayBuffer: [SharedArrayBuffer, SharedArrayBuffer] = [
+            new SharedArrayBuffer(Float32Array.BYTES_PER_ELEMENT * length),
+            new SharedArrayBuffer(Float32Array.BYTES_PER_ELEMENT * length)
+        ]
+        let channelData: [Float32Array<SharedArrayBuffer>, Float32Array<SharedArrayBuffer>] = [
+            new Float32Array(arrayBuffer[0]), 
+            new Float32Array(arrayBuffer[1])
+        ]
         this.#controlChangeEvents = this.#controlChangeEvents.sort((a, b) => a.t - b.t)
         if (this.options.logging?.info) console.log(tags.info + 'Rendering...')
         let chunkSize = Math.ceil(eventCount / this.threadCount)
@@ -501,7 +498,6 @@ class Renderer {
                     sampleRate: this.options.sampleRate,
                     samples: sharedSamples,
                     cc: this.#controlChangeEvents,
-                    pb: this.#pitchBendEvents,
                     opts: this.options,
                     id: i,
                     arrayBuffer
@@ -529,11 +525,10 @@ class Renderer {
             this.#threads[i] = worker
             if (this.options.logging?.info) console.log(tags.info + `Initialized thread ${i + 1} for events ${(startEvent).toLocaleString()} to ${(endEvent).toLocaleString()}!`);
         }
-        this.#sampleEventsSAB = new SharedArrayBuffer()
-        this.#sampleEvents = new Uint8Array(this.#sampleEventsSAB)
+        this.#controlChangeEvents.length = 0
         this.#controlChangeEvents = []
-        this.#pitchBendEvents = []
         await Promise.all(promises)
+        this.#threads.length = 0
         this.#threads = []
         if (this.options.logging?.info) console.log(tags.info + 'Applying limiter...')
         let gain = 1; // start with full gain

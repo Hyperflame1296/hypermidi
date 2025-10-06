@@ -2,9 +2,6 @@
 import { parentPort, workerData } from 'node:worker_threads'
 import color from 'cli-color'
 
-// import: types
-import { SampleEvent } from '../types/SampleEvent.js'
-
 // code
 let samples = workerData.samples.map(s => ({
     pcm: [new Float32Array(s.pcm[0]), new Float32Array(s.pcm[1])],
