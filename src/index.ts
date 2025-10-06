@@ -41,6 +41,7 @@ let tags = {
 class Renderer {
     sampleEvents: SampleEvent[] = []
     controlChangeEvents: ControlChangeSampleEvent[] = []
+    pitchBendEvents: PitchBendSampleEvent[] = []
     events = []
     samples: SampleObject[] = []
     sampleRate: number = 48000
@@ -62,6 +63,7 @@ class Renderer {
         this.threadCount = options.threadCount ?? 8
         this.options.sampleRate = options.sampleRate ?? 48000
         this.options.enableCC = options.enableCC ?? true
+        this.options.enablePitchBend = options.enablePitchBend ?? false
         this.options.audioBufferSize = options.audioBufferSize ?? 512
         this.options.chorus = {
             enabled: options.chorus?.enabled ?? true,
@@ -289,7 +291,7 @@ class Renderer {
                     }
                     break
                 case 0x0e: // pitch bend
-                    if (!this.options.enablePitchBend) break
+                    if (!this.options.enablePitchBend) continue
                     this.events.push({
                         s: 1,
                         k: 'pitch',
@@ -306,6 +308,7 @@ class Renderer {
                             break
                     }
                     break
+
             }
         }
         combinedEvents = []
@@ -366,6 +369,8 @@ class Renderer {
         if (this.options.logging?.info) console.log(tags.info + 'Adding events...')
         let id = 0
         for (let e of this.events) {
+            if (!e)
+                return
             switch (e.k) {
                 case 'note':
                     var noteSampleEvent: NoteSampleEvent = {
@@ -375,7 +380,7 @@ class Renderer {
                     this.sampleEvents.push(noteSampleEvent)
                     break
                 case 'cc':
-                    if (!this.options.enableCC) break
+                    if (!this.options.enableCC) continue
                     var ccSampleEvent: ControlChangeSampleEvent = {
                         ...e,
                         id: id++
@@ -383,15 +388,16 @@ class Renderer {
                     this.controlChangeEvents.push(ccSampleEvent)
                     break
                 case 'pitch':
-                    if (!this.options.enablePitchBend) break
+                    if (!this.options.enablePitchBend) continue
                     var pbSampleEvent: PitchBendSampleEvent = {
                         ...e,
                         id: id++
                     }
-                    this.sampleEvents.push(pbSampleEvent)
+                    this.pitchBendEvents.push(pbSampleEvent)
                     break
             }
         }
+        this.events = []
         this.controlChangeEvents = this.controlChangeEvents.sort((a, b) => a.t - b.t)
         if (this.options.logging?.info) console.log(tags.info + 'Rendering...')
         let chunkSize = Math.ceil(this.sampleEvents.length / this.threadCount)
@@ -417,6 +423,7 @@ class Renderer {
                         attenuation: s.attenuation
                     })),
                     cc: this.controlChangeEvents,
+                    pb: this.pitchBendEvents,
                     opts: this.options,
                     id: i,
                     arrayBuffer
@@ -446,6 +453,8 @@ class Renderer {
         }
         
         this.sampleEvents = []
+        this.controlChangeEvents = []
+        this.pitchBendEvents = []
         await Promise.all(promises)
         this.threads = []
         if (this.options.logging?.info) console.log(tags.info + 'Applying limiter...')
@@ -467,8 +476,6 @@ class Renderer {
             channelData[0][i] = sample[0] * gain;
             channelData[1][i] = sample[1] * gain;
         }
-        this.events = []
-        this.sampleEvents = []
         let end = performance.now()
         if (this.options.logging?.info) console.log(tags.info + `${color.greenBright('Finished rendering!')} ${'(' + color.white(((end - start) / 1000).toFixed(1)) + 's)'}`)
         return channelData

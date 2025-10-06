@@ -54,6 +54,19 @@ function getCCValue(list, t) {
     }
     return lastVal;
 }
+function transpose(data: Float32Array, root: number, note: number): Float32Array {
+    let diff = note - root;
+    let ratio = 2 ** (diff / 12);
+    let len = Math.floor(data.length / ratio);
+    let out = new Float32Array(len);
+    for (let i = 0; i < len; i++) {
+        let j = Math.floor(i * ratio)
+        let k = Math.ceil (i * ratio)
+        let t = (i * ratio) - j
+        out[i] = lerp(data[j] ?? 0, data[k] ?? 0, t)
+    }
+    return out
+}
 let lerp = (a, b, t) => a + (b - a) * t
 for (let i = 0; i < workerData.data.length; i++) {
     let sampleEvent: SampleEvent = workerData.data[i]
@@ -67,13 +80,12 @@ for (let i = 0; i < workerData.data.length; i++) {
             let sample = samples[sampleEvent.n]
             if (start >= channelData[0].length)
                 continue
-            // pitch bend disabled for now
-            let bend = (pitchbend[sampleEvent.c] ?? 0)
+            let bend = workerData.pb.findLast(p => p.t <= sampleEvent.t && p.c === sampleEvent.c)?.v ?? 0
             let pbNote = (bend / 8192) * 12
-            let pcm = /*[
-                bend == 0 ? sample.pcm[0] : this.#transpose(sample.pcm[0], sampleEvent.n, sampleEvent.n + pbNote),
-                bend == 0 ? sample.pcm[1] : this.#transpose(sample.pcm[1], sampleEvent.n, sampleEvent.n + pbNote)
-            ]*/sample.pcm;
+            let pcm = [
+                bend == 0 ? sample.pcm[0] : transpose(sample.pcm[0], sampleEvent.n, sampleEvent.n + pbNote),
+                bend == 0 ? sample.pcm[1] : transpose(sample.pcm[1], sampleEvent.n, sampleEvent.n + pbNote)
+            ];
             let bufSize = workerData.opts?.audioBufferSize
             let release = Math.floor(sample.release * workerData.sampleRate)
             let attack = Math.floor(sample.attack * workerData.sampleRate)

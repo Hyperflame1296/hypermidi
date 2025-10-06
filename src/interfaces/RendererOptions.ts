@@ -16,7 +16,8 @@ interface RendererOptions {
     enableCC?: boolean
     /**
      * Enable pitch bend processing.
-     * Default is `true`.
+     * Default is `false`.
+     * This option MASSIVELY decreases performance as of right now, which is why its off by default
      */
     enablePitchBend?: boolean
     /**
